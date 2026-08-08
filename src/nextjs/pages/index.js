@@ -12,27 +12,27 @@ const localDateTimeValue = (value) => {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
-const formatDeadline = (value) => value ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Belum ditentukan";
+const formatDeadline = (value) => value ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set";
 const orderStatus = (deadline) => {
   if (!deadline) return { label: "DIBUKA", className: "open" };
   const difference = new Date(deadline).getTime() - Date.now();
-  if (difference <= 0) return { label: "BATAS WAKTU LEWAT", className: "closed" };
-  if (difference <= 2 * 60 * 60 * 1000) return { label: "SEGERA DITUTUP", className: "closing" };
-  return { label: "DIBUKA", className: "open" };
+  if (difference <= 0) return { label: "DEADLINE PASSED", className: "closed" };
+  if (difference <= 2 * 60 * 60 * 1000) return { label: "CLOSING SOON", className: "closing" };
+  return { label: "OPEN", className: "open" };
 };
 
 async function compressMenuImage(file) {
-  if (!file?.type.startsWith("image/")) throw new Error("Pilih file gambar terlebih dahulu.");
+  if (!file?.type.startsWith("image/")) throw new Error("Please select an image file.");
   const sourceUrl = URL.createObjectURL(file);
   try {
-    const image = await new Promise((resolve, reject) => { const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error("Gambar tidak dapat dibuka.")); element.src = sourceUrl; });
+    const image = await new Promise((resolve, reject) => { const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error("This image could not be opened.")); element.src = sourceUrl; });
     const scale = Math.min(1, 1600 / image.width, 1600 / image.height);
     const canvas = document.createElement("canvas"); canvas.width = Math.round(image.width * scale); canvas.height = Math.round(image.height * scale);
     canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
     return await new Promise((resolve, reject) => canvas.toBlob((blob) => {
-      if (!blob) return reject(new Error("Kompresi gambar gagal."));
-      if (blob.size > 1_500_000) return reject(new Error("Ukuran gambar masih lebih dari 1,5 MB. Pilih gambar yang lebih kecil."));
-      const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error("Kompresi gambar gagal.")); reader.readAsDataURL(blob);
+      if (!blob) return reject(new Error("Image compression failed."));
+      if (blob.size > 1_500_000) return reject(new Error("Image is still above 1.5 MB. Please choose a smaller image."));
+      const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error("Image compression failed.")); reader.readAsDataURL(blob);
     }, "image/webp", 0.78));
   } finally { URL.revokeObjectURL(sourceUrl); }
 }
@@ -72,7 +72,7 @@ export default function Home({ liff, liffError }) {
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Permintaan gagal.");
+    if (!response.ok) throw new Error(payload.error || "Request failed.");
     return payload;
   }, [liff]);
 
@@ -94,7 +94,7 @@ export default function Home({ liff, liffError }) {
         if (invite) {
           await api("POST", { action: "invite.accept", token: invite });
           window.history.replaceState({}, "", window.location.pathname);
-          setNotice("Kamu sudah bergabung ke room pesanan. Tambahkan pesananmu di bawah.");
+          setNotice("You joined the order room. Add your order below.");
         }
         await loadTenants();
       } catch (requestError) { setError(requestError.message); setDataState("ready"); }
@@ -140,7 +140,7 @@ export default function Home({ liff, liffError }) {
     try {
       const details = { name: tenantName, description: tenantDescription, orderingDeadline: tenantDeadline || null, pickupNotes: tenantPickupNotes, paymentNotes: tenantPaymentNotes };
       await api("POST", editingTenant ? { action: "tenant.rename", tenantId: editingTenant.id, ...details } : { action: "tenant.create", ...details });
-      setModal(null); setNotice(editingTenant ? "Room pesanan diperbarui." : "Room pesanan berhasil dibuat."); await loadTenants();
+      setModal(null); setNotice(editingTenant ? "Order room updated." : "Order room created."); await loadTenants();
     } catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
   };
 
@@ -149,13 +149,13 @@ export default function Home({ liff, liffError }) {
     setIsWorking(true);
     try {
       await api("POST", { action: "order.save", tenantId: activeTenant.id, order: { ...form, id: activeOrder?.id } });
-      setModal(null); setNotice(activeOrder ? "Pesanan diperbarui." : `Pesanan ditambahkan ke ${activeTenant.name}.`); await loadTenants();
+      setModal(null); setNotice(activeOrder ? "Order updated." : `Order added to ${activeTenant.name}.`); await loadTenants();
     } catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
   };
 
   const deleteOrder = async () => {
     setIsWorking(true);
-    try { await api("POST", { action: "order.delete", tenantId: activeTenant.id, orderId: activeOrder.id }); setModal(null); setNotice("Pesanan dihapus."); await loadTenants(); }
+    try { await api("POST", { action: "order.delete", tenantId: activeTenant.id, orderId: activeOrder.id }); setModal(null); setNotice("Order deleted."); await loadTenants(); }
     catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
   };
 
@@ -170,10 +170,10 @@ export default function Home({ liff, liffError }) {
     try {
       const { token } = await api("POST", { action: "invite.create", tenantId: tenant.id });
       const liffId = process.env.LIFF_ID;
-      if (!liffId) throw new Error("LIFF belum dikonfigurasi. Hubungi pemilik aplikasi.");
+      if (!liffId) throw new Error("LIFF is not configured. Please contact the app owner.");
       const url = `https://liff.line.me/${liffId}?invite=${encodeURIComponent(token)}`;
-      if (!liff?.isApiAvailable("shareTargetPicker")) throw new Error("Fitur undang teman hanya tersedia di aplikasi LINE yang didukung.");
-      await liff.shareTargetPicker([{ type: "text", text: `Yuk gabung pesanan ${tenant.name}: ${url}` }], { isMultiple: true });
+      if (!liff?.isApiAvailable("shareTargetPicker")) throw new Error("Friend sharing is available only in a supported LINE app.");
+      await liff.shareTargetPicker([{ type: "text", text: `Join my ${tenant.name} order group: ${url}` }], { isMultiple: true });
     } catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
   };
 
@@ -181,13 +181,13 @@ export default function Home({ liff, liffError }) {
     const file = event.target.files?.[0];
     if (!file) return;
     setIsWorking(true);
-    try { await api("POST", { action: "menu.upload", tenantId: tenant.id, image: await compressMenuImage(file) }); setNotice("Menu berhasil diperbarui."); await loadTenants(); }
+    try { await api("POST", { action: "menu.upload", tenantId: tenant.id, image: await compressMenuImage(file) }); setNotice("Menu updated."); await loadTenants(); }
     catch (requestError) { setError(requestError.message); } finally { event.target.value = ""; setIsWorking(false); }
   };
 
   const archiveOrders = async () => {
     setIsWorking(true);
-    try { await api("POST", { action: "order.archive", tenantId: activeTenant.id }); setModal(null); setLastArchivedTenant(activeTenant); setActiveTab("archive"); setNotice(`${activeTenant.name} telah ditutup dan dipindahkan ke Riwayat.`); await loadTenants(); }
+    try { await api("POST", { action: "order.archive", tenantId: activeTenant.id }); setModal(null); setLastArchivedTenant(activeTenant); setActiveTab("archive"); setNotice(`${activeTenant.name} is closed and has moved to History.`); await loadTenants(); }
     catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
   };
 
@@ -195,11 +195,11 @@ export default function Home({ liff, liffError }) {
     const itemCount = tenant.orders.reduce((total, order) => total + Number(order.quantity), 0);
     const total = tenant.orders.reduce((amount, order) => amount + orderTotal(order), 0);
     const itemLines = tenant.orders.map((order) => `• ${order.quantity}× ${order.menu} — ${formatCurrency(orderTotal(order))}`).join("\n");
-    const details = [tenant.pickup_notes && `Pengambilan: ${tenant.pickup_notes}`, tenant.payment_notes && `Pembayaran: ${tenant.payment_notes}`].filter(Boolean).join("\n");
+    const details = [tenant.pickup_notes && `Pickup: ${tenant.pickup_notes}`, tenant.payment_notes && `Payment: ${tenant.payment_notes}`].filter(Boolean).join("\n");
     try {
-      if (!liff?.isApiAvailable("shareTargetPicker")) throw new Error("Fitur bagikan hanya tersedia di aplikasi LINE yang didukung.");
-      await liff.shareTargetPicker([{ type: "text", text: `Ringkasan pesanan ${tenant.name}\n${itemCount} item · ${formatCurrency(total)}\n\n${itemLines}${details ? `\n\n${details}` : ""}` }], { isMultiple: true });
-      setNotice("Ringkasan pesanan siap dibagikan di LINE.");
+      if (!liff?.isApiAvailable("shareTargetPicker")) throw new Error("Sharing is available only in a supported LINE app.");
+      await liff.shareTargetPicker([{ type: "text", text: `Order summary: ${tenant.name}\n${itemCount} items · ${formatCurrency(total)}\n\n${itemLines}${details ? `\n\n${details}` : ""}` }], { isMultiple: true });
+      setNotice("Order summary is ready to share in LINE.");
     } catch (requestError) { setError(requestError.message); }
   };
 
@@ -207,7 +207,7 @@ export default function Home({ liff, liffError }) {
 
   return <>
     <Head>
-      <title>一起點餐 · Pesan Bersama</title><meta name="viewport" content="width=device-width, initial-scale=1" /><meta httpEquiv="content-language" content="id" /></Head>
+      <title>Order Together</title><meta name="viewport" content="width=device-width, initial-scale=1" /><meta httpEquiv="content-language" content="en" /></Head>
     <Script src="https://www.googletagmanager.com/gtag/js?id=G-NLW42HR5NQ" strategy="afterInteractive" />
     <Script id="google-analytics" strategy="afterInteractive">{`
       window.dataLayer = window.dataLayer || [];
@@ -215,24 +215,24 @@ export default function Home({ liff, liffError }) {
       gtag('js', new Date());
       gtag('config', 'G-NLW42HR5NQ');
     `}</Script>
-    <nav className="top-tabs" aria-label="Navigasi pesanan">
-      <button className={activeTab === "order" ? "top-tab active" : "top-tab"} aria-current={activeTab === "order" ? "page" : undefined} onClick={() => setActiveTab("order")}>Aktif ({tenants.filter((tenant) => !tenant.is_archived).length})</button>
-      <button className={activeTab === "archive" ? "top-tab active" : "top-tab"} aria-current={activeTab === "archive" ? "page" : undefined} onClick={() => setActiveTab("archive")}>Riwayat ({tenants.filter((tenant) => tenant.is_archived).length})</button>
+    <nav className="top-tabs" aria-label="Order navigation">
+      <button className={activeTab === "order" ? "top-tab active" : "top-tab"} aria-current={activeTab === "order" ? "page" : undefined} onClick={() => setActiveTab("order")}>Active ({tenants.filter((tenant) => !tenant.is_archived).length})</button>
+      <button className={activeTab === "archive" ? "top-tab active" : "top-tab"} aria-current={activeTab === "archive" ? "page" : undefined} onClick={() => setActiveTab("archive")}>History ({tenants.filter((tenant) => tenant.is_archived).length})</button>
     </nav>
-    {isWorking && <div className="request-buffer" role="status" aria-live="polite"><div><span className="spinner" /><strong>Menyimpan perubahan</strong><small>Mohon tunggu sebentar…</small></div></div>}
+    {isWorking && <div className="request-buffer" role="status" aria-live="polite"><div><span className="spinner" /><strong>Saving changes</strong><small>Please wait a moment…</small></div></div>}
     <main className="order-page"><div className="tenant-list">
-      {liffError && <p className="liff-notice">Koneksi LIFF tidak tersedia: {liffError}</p>}
-      {loginState === "loading" && !liffError && <p className="liff-notice">Memeriksa login LINE…</p>}
+      {liffError && <p className="liff-notice">LIFF connection unavailable: {liffError}</p>}
+      {loginState === "loading" && !liffError && <p className="liff-notice">Checking LINE login…</p>}
       {error && <p className="app-error" role="alert">{error}</p>}
-      {notice && <div className="app-notice" role="status"><span>{notice}</span><span className="notice-actions">{lastArchivedTenant && activeTab === "archive" && <button onClick={() => shareCheckoutSummary(lastArchivedTenant)}>Bagikan ke LINE</button>}<button onClick={() => setNotice("")}>Tutup</button></span></div>}
-      {(dataState === "loading" || isWorking) && <div className="loading-state"><span className="spinner" /> <span>{isWorking ? "Menyimpan perubahan…" : "Memuat room pesanan…"}</span></div>}
-      {dataState === "ready" && !visibleTenants.length && <section className="empty-tab"><h1>{activeTab === "archive" ? "Belum ada riwayat" : "Belum ada pesanan aktif"}</h1><p>{activeTab === "archive" ? "Room yang sudah ditutup akan muncul di sini." : "Buat room pesanan, lalu undang teman untuk mulai pesan bersama."}</p>{activeTab === "order" && <button className="empty-cta" onClick={() => openTenant()} disabled={loginState !== "ready"}>Buat room pesanan</button>}</section>}
+      {notice && <div className="app-notice" role="status"><span>{notice}</span><span className="notice-actions">{lastArchivedTenant && activeTab === "archive" && <button onClick={() => shareCheckoutSummary(lastArchivedTenant)}>Share to LINE</button>}<button onClick={() => setNotice("")}>Close</button></span></div>}
+      {(dataState === "loading" || isWorking) && <div className="loading-state"><span className="spinner" /> <span>{isWorking ? "Saving changes…" : "Loading order rooms…"}</span></div>}
+      {dataState === "ready" && !visibleTenants.length && <section className="empty-tab"><h1>{activeTab === "archive" ? "No history yet" : "No active orders"}</h1><p>{activeTab === "archive" ? "Closed order rooms will appear here." : "Create an order room, then invite friends to order together."}</p>{activeTab === "order" && <button className="empty-cta" onClick={() => openTenant()} disabled={loginState !== "ready"}>Create an order room</button>}</section>}
       {visibleTenants.map((tenant, index) => {
         if (tenant.is_archived) {
           const latestArchive = tenant.archives?.[0];
           return <details className="order-card archive-tenant-card" key={tenant.id} open={openArchiveTenantId === tenant.id} onToggle={(event) => setOpenArchiveTenantId(event.currentTarget.open ? tenant.id : null)}>
-            <summary className="order-header archive-tenant-summary"><div><p className="eyebrow">DITUTUP</p><div className="tenant-title"><h1>{tenant.name}</h1></div><p className="subtitle">{tenant.description || "Lihat ringkasan pesanan yang telah selesai."}</p>{latestArchive && <p className="archive-summary">{latestArchive.total_items} item · {formatCurrency(latestArchive.total_amount)}</p>}</div><span className="archive-toggle-label">Tampilkan</span></summary>
-            <section className="archive-section"><p className="eyebrow">RIWAYAT PESANAN</p>{tenant.archives?.map((archive) => <article className="archive-record" key={archive.id}><div className="archive-record-heading"><span>{new Date(archive.archived_at).toLocaleDateString("id-ID", { dateStyle: "medium" })}</span><span>{archive.total_items} item · {formatCurrency(archive.total_amount)}</span></div><ul>{archive.orders.map((order) => <li key={order.id}>{order.quantity}× {order.menu} <span>{order.ordered_by_name}</span></li>)}</ul></article>)}</section>
+            <summary className="order-header archive-tenant-summary"><div><p className="eyebrow">CLOSED</p><div className="tenant-title"><h1>{tenant.name}</h1></div><p className="subtitle">{tenant.description || "View the completed order summary."}</p>{latestArchive && <p className="archive-summary">{latestArchive.total_items} items · {formatCurrency(latestArchive.total_amount)}</p>}</div><span className="archive-toggle-label">Show</span></summary>
+            <section className="archive-section"><p className="eyebrow">ORDER HISTORY</p>{tenant.archives?.map((archive) => <article className="archive-record" key={archive.id}><div className="archive-record-heading"><span>{new Date(archive.archived_at).toLocaleDateString("en-US", { dateStyle: "medium" })}</span><span>{archive.total_items} items · {formatCurrency(archive.total_amount)}</span></div><ul>{archive.orders.map((order) => <li key={order.id}>{order.quantity}× {order.menu} <span>{order.ordered_by_name}</span></li>)}</ul></article>)}</section>
           </details>;
         }
 
@@ -242,20 +242,20 @@ export default function Home({ liff, liffError }) {
         const status = orderStatus(tenant.ordering_deadline);
         const orderingClosed = status.className === "closed";
         return <section className="order-card" key={tenant.id}>
-          <header className="order-header"><div><p className={`eyebrow room-status ${status.className}`}>ROOM PESANAN {index + 1} · {status.label}</p><div className="tenant-title"><h1>{tenant.name}</h1>{tenant.role === "owner" && <button className="edit-tenant" aria-label={`Ubah room ${tenant.name}`} onClick={() => openTenant(tenant)}>Ubah</button>}</div><p className="subtitle">{tenant.description || (orderingClosed ? "Batas waktu pesanan telah lewat." : "Tambahkan pesananmu sebelum room ditutup.")}</p></div><div className="order-count"><strong>{itemCount}</strong><span>item</span></div></header>
-          <section className="order-summary" aria-label={`Ringkasan ${tenant.name}`}><div><span>Total grup</span><strong>{formatCurrency(groupTotal)}</strong></div><div><span>Pesanan saya</span><strong>{formatCurrency(myTotal)}</strong></div><div><span>Pemesan</span><strong>{new Set(tenant.orders.map((order) => order.ordered_by_line_user_id)).size} orang</strong></div></section>
-          <section className="coordination-details" aria-label={`Detail koordinasi ${tenant.name}`}><div><span>Batas pesanan</span><strong>{formatDeadline(tenant.ordering_deadline)}</strong></div>{tenant.pickup_notes && <div><span>Pengambilan</span><strong>{tenant.pickup_notes}</strong></div>}{tenant.payment_notes && <div><span>Pembayaran</span><strong>{tenant.payment_notes}</strong></div>}</section>
-          {tenant.role === "owner" && <div className="tenant-tools"><button className="invite-button" onClick={() => inviteFriends(tenant)}>Undang teman</button><label className="menu-upload"><input type="file" accept="image/*" onChange={(event) => uploadMenu(event, tenant)} />{tenant.menuImageUrl ? "Ganti menu" : "Unggah menu"}</label><button className="finish-button" disabled={!tenant.orders.length} onClick={() => { setActiveTenant(tenant); setModal("archive"); }}>Tutup pesanan</button></div>}
-          <section className="menu-section"><div><p className="eyebrow">MENU MERCHANT</p><p>{tenant.menuImageUrl ? "Ketuk gambar untuk melihat menu ukuran penuh." : tenant.role === "owner" ? "Unggah satu gambar menu agar teman dapat melihat pilihan." : "Pemilik room belum mengunggah menu."}</p></div>{tenant.menuImageUrl && <button type="button" className="menu-preview" onClick={() => setMenuPreview({ url: tenant.menuImageUrl, name: tenant.name })} aria-label={`Lihat menu ${tenant.name}`}><img src={tenant.menuImageUrl} alt={`Menu ${tenant.name}`} /></button>}</section>
-          <div className="table-wrap"><table><thead><tr><th>No.</th><th>Menu</th><th>Jumlah</th><th>Pemesan</th><th>Catatan</th><th>Total</th><th aria-label="Aksi" /></tr></thead><tbody>{tenant.orders.length ? tenant.orders.map((order, orderIndex) => {
+          <header className="order-header"><div><p className={`eyebrow room-status ${status.className}`}>ORDER ROOM {index + 1} · {status.label}</p><div className="tenant-title"><h1>{tenant.name}</h1>{tenant.role === "owner" && <button className="edit-tenant" aria-label={`Edit ${tenant.name} order room`} onClick={() => openTenant(tenant)}>Edit</button>}</div><p className="subtitle">{tenant.description || (orderingClosed ? "The ordering deadline has passed." : "Add your order before this room closes.")}</p></div><div className="order-count"><strong>{itemCount}</strong><span>items</span></div></header>
+          <section className="order-summary" aria-label={`${tenant.name} summary`}><div><span>Group total</span><strong>{formatCurrency(groupTotal)}</strong></div><div><span>My order</span><strong>{formatCurrency(myTotal)}</strong></div><div><span>People</span><strong>{new Set(tenant.orders.map((order) => order.ordered_by_line_user_id)).size}</strong></div></section>
+          <section className="coordination-details" aria-label={`${tenant.name} coordination details`}><div><span>Order deadline</span><strong>{formatDeadline(tenant.ordering_deadline)}</strong></div>{tenant.pickup_notes && <div><span>Pickup</span><strong>{tenant.pickup_notes}</strong></div>}{tenant.payment_notes && <div><span>Payment</span><strong>{tenant.payment_notes}</strong></div>}</section>
+          {tenant.role === "owner" && <div className="tenant-tools"><button className="invite-button" onClick={() => inviteFriends(tenant)}>Invite friends</button><label className="menu-upload"><input type="file" accept="image/*" onChange={(event) => uploadMenu(event, tenant)} />{tenant.menuImageUrl ? "Replace menu" : "Upload menu"}</label><button className="finish-button" disabled={!tenant.orders.length} onClick={() => { setActiveTenant(tenant); setModal("archive"); }}>Close order</button></div>}
+          <section className="menu-section"><div><p className="eyebrow">MERCHANT MENU</p><p>{tenant.menuImageUrl ? "Tap the image to view the full menu." : tenant.role === "owner" ? "Upload one menu image so friends can see the options." : "The room owner has not uploaded a menu yet."}</p></div>{tenant.menuImageUrl && <button type="button" className="menu-preview" onClick={() => setMenuPreview({ url: tenant.menuImageUrl, name: tenant.name })} aria-label={`View ${tenant.name} menu`}><img src={tenant.menuImageUrl} alt={`${tenant.name} menu`} /></button>}</section>
+          <div className="table-wrap"><table><thead><tr><th>No.</th><th>Menu</th><th>Quantity</th><th>Ordered by</th><th>Notes</th><th>Total</th><th aria-label="Actions" /></tr></thead><tbody>{tenant.orders.length ? tenant.orders.map((order, orderIndex) => {
             const isMine = order.ordered_by_line_user_id === viewerId;
             const canModify = tenant.role === "owner" || isMine;
-            return <tr key={order.id} className={isMine ? "my-order" : ""}><td data-label="No.">{String(orderIndex + 1).padStart(2, "0")}</td><td data-label="Menu" className="menu-name">{order.menu}{isMine && <span className="my-order-label">Pesanan saya</span>}</td><td data-label="Jumlah"><span className="quantity">{order.quantity}</span></td><td data-label="Pemesan">{order.ordered_by_name}</td><td data-label="Catatan" className="notes">{order.notes || "—"}</td><td data-label="Total" className="line-total">{formatCurrency(orderTotal(order))}</td><td className="actions">{canModify && <><button aria-label={`Ubah pesanan ${order.menu}`} onClick={() => openOrder(tenant, order)}>Ubah</button><button className="delete-link" aria-label={`Hapus pesanan ${order.menu}`} onClick={() => { setActiveTenant(tenant); setActiveOrder(order); setModal("delete"); }}>Hapus</button></>}</td></tr>;
-          }) : <tr><td className="empty-orders" colSpan="7">Belum ada pesanan. Jadilah yang pertama menambahkan pesanan.</td></tr>}</tbody></table></div>
-          <button className="add-button" onClick={() => openOrder(tenant)} disabled={loginState !== "ready" || orderingClosed}><span>＋</span>{orderingClosed ? "Batas waktu pesanan telah lewat" : "Tambah pesanan"}</button>{tenant.role === "owner" && <button className="delete-tenant-button" onClick={() => { setActiveTenant(tenant); setModal("deleteTenant"); }}>Hapus room pesanan</button>}
+            return <tr key={order.id} className={isMine ? "my-order" : ""}><td data-label="No.">{String(orderIndex + 1).padStart(2, "0")}</td><td data-label="Menu" className="menu-name">{order.menu}{isMine && <span className="my-order-label">My order</span>}</td><td data-label="Quantity"><span className="quantity">{order.quantity}</span></td><td data-label="Ordered by">{order.ordered_by_name}</td><td data-label="Notes" className="notes">{order.notes || "—"}</td><td data-label="Total" className="line-total">{formatCurrency(orderTotal(order))}</td><td className="actions">{canModify && <><button aria-label={`Edit ${order.menu} order`} onClick={() => openOrder(tenant, order)}>Edit</button><button className="delete-link" aria-label={`Delete ${order.menu} order`} onClick={() => { setActiveTenant(tenant); setActiveOrder(order); setModal("delete"); }}>Delete</button></>}</td></tr>;
+          }) : <tr><td className="empty-orders" colSpan="7">No orders yet. Be the first to add one.</td></tr>}</tbody></table></div>
+          <button className="add-button" onClick={() => openOrder(tenant)} disabled={loginState !== "ready" || orderingClosed}><span>＋</span>{orderingClosed ? "The ordering deadline has passed" : "Add order"}</button>{tenant.role === "owner" && <button className="delete-tenant-button" onClick={() => { setActiveTenant(tenant); setModal("deleteTenant"); }}>Delete order room</button>}
         </section>;
       })}
-      {activeTab === "order" && visibleTenants.length > 0 && <button className="add-tenant-button" onClick={() => openTenant()} disabled={loginState !== "ready"}><span>＋</span> Buat room pesanan</button>}
+      {activeTab === "order" && visibleTenants.length > 0 && <button className="add-tenant-button" onClick={() => openTenant()} disabled={loginState !== "ready"}><span>＋</span> Create order room</button>}
     </div></main>
     {modal === "tenant" && <div className="modal-backdrop"><form ref={dialogRef} className="modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="tenant-dialog-title" onSubmit={saveTenant}><div className="modal-heading"><p className="eyebrow">{editingTenant ? "UBAH ROOM" : "ROOM BARU"}</p><h2 id="tenant-dialog-title">{editingTenant ? "Ubah room pesanan" : "Buat room pesanan"}</h2></div><label>Nama merchant / tempat makan<input autoFocus required value={tenantName} onChange={(event) => setTenantName(event.target.value)} placeholder="contoh: Chatime" /></label><label>Catatan untuk peserta <small>(opsional)</small><textarea value={tenantDescription} onChange={(event) => setTenantDescription(event.target.value)} placeholder="contoh: Pesan sebelum pukul 12.00" rows="3" /></label><label>Batas waktu pesanan <small>(opsional)</small><input type="datetime-local" value={tenantDeadline} onChange={(event) => setTenantDeadline(event.target.value)} /></label><label>Instruksi pengambilan <small>(opsional)</small><textarea value={tenantPickupNotes} onChange={(event) => setTenantPickupNotes(event.target.value)} placeholder="contoh: Ambil di lobi pukul 12.30" rows="2" /></label><label>Cara pembayaran <small>(opsional)</small><textarea value={tenantPaymentNotes} onChange={(event) => setTenantPaymentNotes(event.target.value)} placeholder="contoh: Transfer ke BCA 123456789" rows="2" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button><button type="submit" className="tenant-submit-button">{editingTenant ? "Simpan" : "Buat room"}</button></div></form></div>}
     {modal === "order" && <div className="modal-backdrop"><form ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="order-dialog-title" onSubmit={saveOrder}><div className="modal-heading"><p className="eyebrow">{activeOrder ? "UBAH PESANAN" : "PESANAN BARU"}</p><h2 id="order-dialog-title">{activeOrder ? "Ubah pesananmu" : `Tambah pesanan di ${activeTenant?.name}`}</h2></div><div className="profile-summary"><span>Memesan sebagai</span><strong>{profileName}</strong></div>{activeTenant?.menuImageUrl && <button type="button" className="view-menu-link" onClick={() => setMenuPreview({ url: activeTenant.menuImageUrl, name: activeTenant.name })}>Lihat menu {activeTenant.name}</button>}<label>Menu<input autoFocus required name="menu" value={form.menu} onChange={updateField} placeholder="contoh: Brown Sugar Boba Milk" /></label><div className="form-grid"><label>Jumlah<input required min="1" inputMode="numeric" type="number" name="quantity" value={form.quantity} onChange={updateField} /></label><label>Harga satuan (Rp) <small>opsional</small><input min="0" inputMode="numeric" type="number" name="price" value={form.price} onChange={updateField} placeholder="25000" /></label></div><p className="form-total">Total pesanan ini <strong>{formatCurrency(orderTotal(form))}</strong></p><label>Catatan <small>(opsional)</small><textarea name="notes" value={form.notes || ""} onChange={updateField} placeholder="contoh: kurang es, 50% gula" rows="3" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button><button type="submit" className="primary-button">{activeOrder ? "Simpan perubahan" : "Tambahkan pesanan"}</button></div></form></div>}
