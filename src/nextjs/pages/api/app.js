@@ -1,6 +1,9 @@
 import { getLineIdentity } from "../../lib/server/line";
 import { getSupabaseAdmin } from "../../lib/server/supabase";
 
+// A compressed 1.5 MB WebP becomes roughly 2 MB when encoded as Base64 in JSON.
+export const config = { api: { bodyParser: { sizeLimit: "3mb" } } };
+
 const json = (response, status, body) => response.status(status).json(body);
 
 async function authenticate(request) {

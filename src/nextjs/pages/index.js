@@ -33,7 +33,6 @@ export default function Home({ liff, liffError }) {
   const [loginState, setLoginState] = useState("loading");
   const [dataState, setDataState] = useState("loading");
   const [isWorking, setIsWorking] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("order");
   const [error, setError] = useState("");
 
@@ -138,7 +137,7 @@ export default function Home({ liff, liffError }) {
 
   const visibleTenants = tenants.filter((tenant) => activeTab === "archive" ? tenant.is_archived : !tenant.is_archived);
 
-  return <><Head><title>一起點餐 · Order Together</title><meta name="viewport" content="width=device-width, initial-scale=1" /></Head><main className="order-page"><button className="sidebar-toggle" onClick={() => setSidebarOpen((open) => !open)} aria-label="Open navigation">☰</button><aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}><div className="sidebar-heading"><span>ORDER SPACE</span><button onClick={() => setSidebarOpen(false)} aria-label="Close navigation">×</button></div><button className={activeTab === "order" ? "sidebar-tab active" : "sidebar-tab"} onClick={() => { setActiveTab("order"); setSidebarOpen(false); }}>Order</button><button className={activeTab === "archive" ? "sidebar-tab active" : "sidebar-tab"} onClick={() => { setActiveTab("archive"); setSidebarOpen(false); }}>Archive</button></aside><div className="tenant-list">
+  return <><Head><title>一起點餐 · Order Together</title><meta name="viewport" content="width=device-width, initial-scale=1" /></Head><nav className="top-tabs" aria-label="Order navigation"><button className={activeTab === "order" ? "top-tab active" : "top-tab"} onClick={() => setActiveTab("order")}>Order</button><span className="top-tab-divider" /><button className={activeTab === "archive" ? "top-tab active" : "top-tab"} onClick={() => setActiveTab("archive")}>Archive</button></nav>{isWorking && <div className="request-buffer" role="status" aria-live="polite"><div><span className="spinner" /><strong>Saving changes</strong><small>Please wait a moment…</small></div></div>}<main className="order-page"><div className="tenant-list">
     {liffError && <p className="liff-notice">LIFF connection unavailable: {liffError}</p>}
     {loginState === "loading" && !liffError && <p className="liff-notice">Checking LINE login…</p>}
     {error && <p className="app-error">{error}</p>}
