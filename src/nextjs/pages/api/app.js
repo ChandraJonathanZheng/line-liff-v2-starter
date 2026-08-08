@@ -34,11 +34,18 @@ async function canModifyOrder(supabase, tenantId, orderId, lineUserId) {
 async function tenantState(supabase, lineUserId) {
   const { data, error } = await supabase
     .from("tenant_members")
-    .select("role, tenant:tenants(id, name, owner_line_user_id, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, created_at))")
+    .select("role, tenant:tenants(id, name, owner_line_user_id, menu_image_path, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
     .eq("line_user_id", lineUserId)
     .order("created_at", { referencedTable: "tenants", ascending: true });
   if (error) throw error;
-  return (data || []).map(({ role, tenant }) => ({ ...tenant, role, orders: tenant.tenant_orders || [] }));
+  return Promise.all((data || []).map(async ({ role, tenant }) => {
+    let menuImageUrl = null;
+    if (tenant.menu_image_path) {
+      const { data: signedImage } = await supabase.storage.from("tenant-menu-images").createSignedUrl(tenant.menu_image_path, 60 * 60);
+      menuImageUrl = signedImage?.signedUrl || null;
+    }
+    return { ...tenant, role, menuImageUrl, orders: tenant.tenant_orders || [], archives: tenant.tenant_archives || [] };
+  }));
 }
 
 export default async function handler(request, response) {
@@ -67,6 +74,21 @@ export default async function handler(request, response) {
       return json(response, 200, { ok: true });
     }
 
+    if (action === "menu.upload") {
+      const { tenantId, image } = request.body;
+      if (await memberRole(supabase, tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can change the menu image." });
+      const match = /^data:(image\/webp);base64,(.+)$/.exec(image || "");
+      if (!match) return json(response, 400, { error: "Please upload a compressed WebP image." });
+      const file = Buffer.from(match[2], "base64");
+      if (!file.length || file.length > 1_500_000) return json(response, 400, { error: "Compressed image must be smaller than 1.5 MB." });
+      const path = `${tenantId}/menu.webp`;
+      const { error: uploadError } = await supabase.storage.from("tenant-menu-images").upload(path, file, { contentType: "image/webp", upsert: true, cacheControl: "3600" });
+      if (uploadError) throw uploadError;
+      const { error } = await supabase.from("tenants").update({ menu_image_path: path, updated_at: new Date().toISOString() }).eq("id", tenantId);
+      if (error) throw error;
+      return json(response, 200, { ok: true });
+    }
+
     if (action === "order.save") {
       const { tenantId, order } = request.body;
       await memberRole(supabase, tenantId, identity.sub);
@@ -83,6 +105,21 @@ export default async function handler(request, response) {
       if (!(await canModifyOrder(supabase, request.body.tenantId, request.body.orderId, identity.sub))) return json(response, 403, { error: "You can delete only your own order." });
       const { error } = await supabase.from("tenant_orders").delete().eq("id", request.body.orderId).eq("tenant_id", request.body.tenantId);
       if (error) throw error;
+      return json(response, 200, { ok: true });
+    }
+
+    if (action === "order.archive") {
+      const { tenantId } = request.body;
+      if (await memberRole(supabase, tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can finish this order." });
+      const { data: orders, error: orderError } = await supabase.from("tenant_orders").select("id, menu, quantity, price, notes, ordered_by_name, created_at").eq("tenant_id", tenantId).order("created_at");
+      if (orderError) throw orderError;
+      if (!orders?.length) return json(response, 400, { error: "There are no active orders to archive." });
+      const totalItems = orders.reduce((total, order) => total + Number(order.quantity), 0);
+      const totalAmount = orders.reduce((total, order) => total + Number(order.quantity) * Number(order.price), 0);
+      const { error: archiveError } = await supabase.from("tenant_archives").insert({ tenant_id: tenantId, orders, total_items: totalItems, total_amount: totalAmount, archived_by_line_user_id: identity.sub });
+      if (archiveError) throw archiveError;
+      const { error: deleteError } = await supabase.from("tenant_orders").delete().eq("tenant_id", tenantId);
+      if (deleteError) throw deleteError;
       return json(response, 200, { ok: true });
     }
 
