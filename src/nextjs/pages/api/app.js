@@ -156,8 +156,8 @@ export default async function handler(request, response) {
       if (archiveError) throw archiveError;
       const { error: deleteError } = await supabase.from("tenant_orders").delete().eq("tenant_id", tenantId);
       if (deleteError) throw deleteError;
-      const { error: tenantError } = await supabase.from("tenants").update({ is_archived: true, updated_at: new Date().toISOString() }).eq("id", tenantId);
-      if (tenantError) throw tenantError;
+      const { error: tenantArchiveError } = await supabase.from("tenants").update({ is_archived: true, updated_at: new Date().toISOString() }).eq("id", tenantId);
+      if (tenantArchiveError) throw tenantArchiveError;
       return json(response, 200, { ok: true });
     }
 
