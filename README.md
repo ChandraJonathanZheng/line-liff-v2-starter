@@ -39,7 +39,7 @@ $ npm install netlify-cli -g
 2. Run following command to build project.
 
 ```sh
-$ LIFF_ID="your LIFF ID" npm run build
+$ LIFF_ID="2011020800-lm2OfZjI" npm run build
 ```
 
 3. Make sure you have signed in your Netlify account.

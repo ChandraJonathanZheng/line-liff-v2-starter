@@ -10,9 +10,13 @@
   },
   "dependencies": {
     "@line/liff": "2.27.2",
-    "next": "15.0.1",
+    "build": "^0.1.4",
+    "deploy": "^1.1.0",
+    "netlify": "^27.1.1",
+    "next": "15.0.5",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "yarn": "^1.22.22"
   },
   "devDependencies": {
     "eslint": "9.13.0",
