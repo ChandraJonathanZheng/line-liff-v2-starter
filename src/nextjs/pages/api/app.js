@@ -80,12 +80,13 @@ export default async function handler(request, response) {
     if (action === "menu.upload") {
       const { tenantId, image } = request.body;
       if (await memberRole(supabase, tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can change the menu image." });
-      const match = /^data:(image\/webp);base64,(.+)$/.exec(image || "");
-      if (!match) return json(response, 400, { error: "Please upload a compressed WebP image." });
+      const match = /^data:(image\/(?:webp|jpeg|png));base64,([a-z0-9+/=]+)$/i.exec(image || "");
+      if (!match) return json(response, 400, { error: "Please choose a valid JPG, PNG, or WebP image." });
       const file = Buffer.from(match[2], "base64");
       if (!file.length || file.length > 1_500_000) return json(response, 400, { error: "Compressed image must be smaller than 1.5 MB." });
-      const path = `${tenantId}/menu.webp`;
-      const { error: uploadError } = await supabase.storage.from("tenant-menu-images").upload(path, file, { contentType: "image/webp", upsert: true, cacheControl: "3600" });
+      const extension = { "image/webp": "webp", "image/jpeg": "jpg", "image/png": "png" }[match[1].toLowerCase()];
+      const path = `${tenantId}/menu.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("tenant-menu-images").upload(path, file, { contentType: match[1].toLowerCase(), upsert: true, cacheControl: "3600" });
       if (uploadError) throw uploadError;
       const { error } = await supabase.from("tenants").update({ menu_image_path: path, updated_at: new Date().toISOString() }).eq("id", tenantId);
       if (error) throw error;
