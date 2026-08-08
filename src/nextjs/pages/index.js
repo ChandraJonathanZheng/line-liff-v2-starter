@@ -1,11 +1,24 @@
 /* eslint-disable @next/next/no-img-element -- Supabase signed URLs are dynamic and short-lived. */
 import Head from "next/head";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const emptyOrder = { menu: "", quantity: 1, price: "", notes: "" };
 const formatAmount = (amount) => Number(amount || 0).toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const formatCurrency = (amount) => `Rp${formatAmount(amount)}`;
 const orderTotal = (order) => Number(order.quantity || 0) * Number(order.price || 0);
+const localDateTimeValue = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+const formatDeadline = (value) => value ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Belum ditentukan";
+const orderStatus = (deadline) => {
+  if (!deadline) return { label: "DIBUKA", className: "open" };
+  const difference = new Date(deadline).getTime() - Date.now();
+  if (difference <= 0) return { label: "BATAS WAKTU LEWAT", className: "closed" };
+  if (difference <= 2 * 60 * 60 * 1000) return { label: "SEGERA DITUTUP", className: "closing" };
+  return { label: "DIBUKA", className: "open" };
+};
 
 async function compressMenuImage(file) {
   if (!file?.type.startsWith("image/")) throw new Error("Pilih file gambar terlebih dahulu.");
@@ -29,6 +42,9 @@ export default function Home({ liff, liffError }) {
   const [form, setForm] = useState(emptyOrder);
   const [tenantName, setTenantName] = useState("");
   const [tenantDescription, setTenantDescription] = useState("");
+  const [tenantDeadline, setTenantDeadline] = useState("");
+  const [tenantPickupNotes, setTenantPickupNotes] = useState("");
+  const [tenantPaymentNotes, setTenantPaymentNotes] = useState("");
   const [activeTenant, setActiveTenant] = useState(null);
   const [activeOrder, setActiveOrder] = useState(null);
   const [editingTenant, setEditingTenant] = useState(null);
@@ -42,6 +58,9 @@ export default function Home({ liff, liffError }) {
   const [menuPreview, setMenuPreview] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [lastArchivedTenant, setLastArchivedTenant] = useState(null);
+  const dialogRef = useRef(null);
+  const lastFocusedElementRef = useRef(null);
 
   const api = useCallback(async (method = "GET", body) => {
     const idToken = liff?.getIDToken();
@@ -93,13 +112,33 @@ export default function Home({ liff, liffError }) {
 
   const updateField = (event) => { const { name, value } = event.target; setForm((current) => ({ ...current, [name]: value })); };
   const openOrder = (tenant, order = null) => { setActiveTenant(tenant); setActiveOrder(order); setForm(order ? { ...order } : emptyOrder); setModal("order"); };
-  const openTenant = (tenant = null) => { setEditingTenant(tenant); setTenantName(tenant?.name || ""); setTenantDescription(tenant?.description || ""); setModal("tenant"); };
+  const openTenant = (tenant = null) => { setEditingTenant(tenant); setTenantName(tenant?.name || ""); setTenantDescription(tenant?.description || ""); setTenantDeadline(localDateTimeValue(tenant?.ordering_deadline)); setTenantPickupNotes(tenant?.pickup_notes || ""); setTenantPaymentNotes(tenant?.payment_notes || ""); setModal("tenant"); };
+
+  useEffect(() => {
+    if (!modal && !menuPreview) return undefined;
+    lastFocusedElementRef.current = document.activeElement;
+    const focusableSelector = "button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusDialog = () => dialogRef.current?.querySelector("[autofocus], " + focusableSelector)?.focus();
+    const timeout = window.setTimeout(focusDialog, 0);
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") { if (menuPreview) setMenuPreview(null); else setModal(null); return; }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll(focusableSelector)];
+      if (!focusable.length) return;
+      const first = focusable[0]; const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { window.clearTimeout(timeout); document.removeEventListener("keydown", onKeyDown); lastFocusedElementRef.current?.focus?.(); };
+  }, [modal, menuPreview]);
 
   const saveTenant = async (event) => {
     event.preventDefault();
     setIsWorking(true);
     try {
-      await api("POST", editingTenant ? { action: "tenant.rename", tenantId: editingTenant.id, name: tenantName, description: tenantDescription } : { action: "tenant.create", name: tenantName, description: tenantDescription });
+      const details = { name: tenantName, description: tenantDescription, orderingDeadline: tenantDeadline || null, pickupNotes: tenantPickupNotes, paymentNotes: tenantPaymentNotes };
+      await api("POST", editingTenant ? { action: "tenant.rename", tenantId: editingTenant.id, ...details } : { action: "tenant.create", ...details });
       setModal(null); setNotice(editingTenant ? "Room pesanan diperbarui." : "Room pesanan berhasil dibuat."); await loadTenants();
     } catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
   };
@@ -147,8 +186,20 @@ export default function Home({ liff, liffError }) {
 
   const archiveOrders = async () => {
     setIsWorking(true);
-    try { await api("POST", { action: "order.archive", tenantId: activeTenant.id }); setModal(null); setActiveTab("archive"); setNotice(`${activeTenant.name} telah ditutup dan dipindahkan ke Riwayat.`); await loadTenants(); }
+    try { await api("POST", { action: "order.archive", tenantId: activeTenant.id }); setModal(null); setLastArchivedTenant(activeTenant); setActiveTab("archive"); setNotice(`${activeTenant.name} telah ditutup dan dipindahkan ke Riwayat.`); await loadTenants(); }
     catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
+  };
+
+  const shareCheckoutSummary = async (tenant) => {
+    const itemCount = tenant.orders.reduce((total, order) => total + Number(order.quantity), 0);
+    const total = tenant.orders.reduce((amount, order) => amount + orderTotal(order), 0);
+    const itemLines = tenant.orders.map((order) => `• ${order.quantity}× ${order.menu} — ${formatCurrency(orderTotal(order))}`).join("\n");
+    const details = [tenant.pickup_notes && `Pengambilan: ${tenant.pickup_notes}`, tenant.payment_notes && `Pembayaran: ${tenant.payment_notes}`].filter(Boolean).join("\n");
+    try {
+      if (!liff?.isApiAvailable("shareTargetPicker")) throw new Error("Fitur bagikan hanya tersedia di aplikasi LINE yang didukung.");
+      await liff.shareTargetPicker([{ type: "text", text: `Ringkasan pesanan ${tenant.name}\n${itemCount} item · ${formatCurrency(total)}\n\n${itemLines}${details ? `\n\n${details}` : ""}` }], { isMultiple: true });
+      setNotice("Ringkasan pesanan siap dibagikan di LINE.");
+    } catch (requestError) { setError(requestError.message); }
   };
 
   const visibleTenants = tenants.filter((tenant) => activeTab === "archive" ? tenant.is_archived : !tenant.is_archived);
@@ -164,7 +215,7 @@ export default function Home({ liff, liffError }) {
       {liffError && <p className="liff-notice">Koneksi LIFF tidak tersedia: {liffError}</p>}
       {loginState === "loading" && !liffError && <p className="liff-notice">Memeriksa login LINE…</p>}
       {error && <p className="app-error" role="alert">{error}</p>}
-      {notice && <div className="app-notice" role="status"><span>{notice}</span>{activeTab === "archive" && <button onClick={() => setNotice("")}>Tutup</button>}</div>}
+      {notice && <div className="app-notice" role="status"><span>{notice}</span><span className="notice-actions">{lastArchivedTenant && activeTab === "archive" && <button onClick={() => shareCheckoutSummary(lastArchivedTenant)}>Bagikan ke LINE</button>}<button onClick={() => setNotice("")}>Tutup</button></span></div>}
       {(dataState === "loading" || isWorking) && <div className="loading-state"><span className="spinner" /> <span>{isWorking ? "Menyimpan perubahan…" : "Memuat room pesanan…"}</span></div>}
       {dataState === "ready" && !visibleTenants.length && <section className="empty-tab"><h1>{activeTab === "archive" ? "Belum ada riwayat" : "Belum ada pesanan aktif"}</h1><p>{activeTab === "archive" ? "Room yang sudah ditutup akan muncul di sini." : "Buat room pesanan, lalu undang teman untuk mulai pesan bersama."}</p>{activeTab === "order" && <button className="empty-cta" onClick={() => openTenant()} disabled={loginState !== "ready"}>Buat room pesanan</button>}</section>}
       {visibleTenants.map((tenant, index) => {
@@ -179,9 +230,12 @@ export default function Home({ liff, liffError }) {
         const itemCount = tenant.orders.reduce((total, order) => total + Number(order.quantity), 0);
         const groupTotal = tenant.orders.reduce((total, order) => total + orderTotal(order), 0);
         const myTotal = tenant.orders.filter((order) => order.ordered_by_line_user_id === viewerId).reduce((total, order) => total + orderTotal(order), 0);
+        const status = orderStatus(tenant.ordering_deadline);
+        const orderingClosed = status.className === "closed";
         return <section className="order-card" key={tenant.id}>
-          <header className="order-header"><div><p className="eyebrow">ROOM PESANAN {index + 1} · DIBUKA</p><div className="tenant-title"><h1>{tenant.name}</h1>{tenant.role === "owner" && <button className="edit-tenant" aria-label={`Ubah room ${tenant.name}`} onClick={() => openTenant(tenant)}>Ubah</button>}</div><p className="subtitle">{tenant.description || "Tambahkan pesananmu sebelum room ditutup."}</p></div><div className="order-count"><strong>{itemCount}</strong><span>item</span></div></header>
+          <header className="order-header"><div><p className={`eyebrow room-status ${status.className}`}>ROOM PESANAN {index + 1} · {status.label}</p><div className="tenant-title"><h1>{tenant.name}</h1>{tenant.role === "owner" && <button className="edit-tenant" aria-label={`Ubah room ${tenant.name}`} onClick={() => openTenant(tenant)}>Ubah</button>}</div><p className="subtitle">{tenant.description || (orderingClosed ? "Batas waktu pesanan telah lewat." : "Tambahkan pesananmu sebelum room ditutup.")}</p></div><div className="order-count"><strong>{itemCount}</strong><span>item</span></div></header>
           <section className="order-summary" aria-label={`Ringkasan ${tenant.name}`}><div><span>Total grup</span><strong>{formatCurrency(groupTotal)}</strong></div><div><span>Pesanan saya</span><strong>{formatCurrency(myTotal)}</strong></div><div><span>Pemesan</span><strong>{new Set(tenant.orders.map((order) => order.ordered_by_line_user_id)).size} orang</strong></div></section>
+          <section className="coordination-details" aria-label={`Detail koordinasi ${tenant.name}`}><div><span>Batas pesanan</span><strong>{formatDeadline(tenant.ordering_deadline)}</strong></div>{tenant.pickup_notes && <div><span>Pengambilan</span><strong>{tenant.pickup_notes}</strong></div>}{tenant.payment_notes && <div><span>Pembayaran</span><strong>{tenant.payment_notes}</strong></div>}</section>
           {tenant.role === "owner" && <div className="tenant-tools"><button className="invite-button" onClick={() => inviteFriends(tenant)}>Undang teman</button><label className="menu-upload"><input type="file" accept="image/*" onChange={(event) => uploadMenu(event, tenant)} />{tenant.menuImageUrl ? "Ganti menu" : "Unggah menu"}</label><button className="finish-button" disabled={!tenant.orders.length} onClick={() => { setActiveTenant(tenant); setModal("archive"); }}>Tutup pesanan</button></div>}
           <section className="menu-section"><div><p className="eyebrow">MENU MERCHANT</p><p>{tenant.menuImageUrl ? "Ketuk gambar untuk melihat menu ukuran penuh." : tenant.role === "owner" ? "Unggah satu gambar menu agar teman dapat melihat pilihan." : "Pemilik room belum mengunggah menu."}</p></div>{tenant.menuImageUrl && <button type="button" className="menu-preview" onClick={() => setMenuPreview({ url: tenant.menuImageUrl, name: tenant.name })} aria-label={`Lihat menu ${tenant.name}`}><img src={tenant.menuImageUrl} alt={`Menu ${tenant.name}`} /></button>}</section>
           <div className="table-wrap"><table><thead><tr><th>No.</th><th>Menu</th><th>Jumlah</th><th>Pemesan</th><th>Catatan</th><th>Total</th><th aria-label="Aksi" /></tr></thead><tbody>{tenant.orders.length ? tenant.orders.map((order, orderIndex) => {
@@ -189,16 +243,16 @@ export default function Home({ liff, liffError }) {
             const canModify = tenant.role === "owner" || isMine;
             return <tr key={order.id} className={isMine ? "my-order" : ""}><td data-label="No.">{String(orderIndex + 1).padStart(2, "0")}</td><td data-label="Menu" className="menu-name">{order.menu}{isMine && <span className="my-order-label">Pesanan saya</span>}</td><td data-label="Jumlah"><span className="quantity">{order.quantity}</span></td><td data-label="Pemesan">{order.ordered_by_name}</td><td data-label="Catatan" className="notes">{order.notes || "—"}</td><td data-label="Total" className="line-total">{formatCurrency(orderTotal(order))}</td><td className="actions">{canModify && <><button aria-label={`Ubah pesanan ${order.menu}`} onClick={() => openOrder(tenant, order)}>Ubah</button><button className="delete-link" aria-label={`Hapus pesanan ${order.menu}`} onClick={() => { setActiveTenant(tenant); setActiveOrder(order); setModal("delete"); }}>Hapus</button></>}</td></tr>;
           }) : <tr><td className="empty-orders" colSpan="7">Belum ada pesanan. Jadilah yang pertama menambahkan pesanan.</td></tr>}</tbody></table></div>
-          <button className="add-button" onClick={() => openOrder(tenant)} disabled={loginState !== "ready"}><span>＋</span>Tambah pesanan</button>{tenant.role === "owner" && <button className="delete-tenant-button" onClick={() => { setActiveTenant(tenant); setModal("deleteTenant"); }}>Hapus room pesanan</button>}
+          <button className="add-button" onClick={() => openOrder(tenant)} disabled={loginState !== "ready" || orderingClosed}><span>＋</span>{orderingClosed ? "Batas waktu pesanan telah lewat" : "Tambah pesanan"}</button>{tenant.role === "owner" && <button className="delete-tenant-button" onClick={() => { setActiveTenant(tenant); setModal("deleteTenant"); }}>Hapus room pesanan</button>}
         </section>;
       })}
       {activeTab === "order" && visibleTenants.length > 0 && <button className="add-tenant-button" onClick={() => openTenant()} disabled={loginState !== "ready"}><span>＋</span> Buat room pesanan</button>}
     </div></main>
-    {modal === "tenant" && <div className="modal-backdrop"><form className="modal tenant-modal" onSubmit={saveTenant}><div className="modal-heading"><p className="eyebrow">{editingTenant ? "UBAH ROOM" : "ROOM BARU"}</p><h2>{editingTenant ? "Ubah room pesanan" : "Buat room pesanan"}</h2></div><label>Nama merchant / tempat makan<input autoFocus required value={tenantName} onChange={(event) => setTenantName(event.target.value)} placeholder="contoh: Chatime" /></label><label>Catatan untuk peserta <small>(opsional)</small><textarea value={tenantDescription} onChange={(event) => setTenantDescription(event.target.value)} placeholder="contoh: Pesan sebelum pukul 12.00" rows="3" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button><button type="submit" className="tenant-submit-button">{editingTenant ? "Simpan" : "Buat room"}</button></div></form></div>}
-    {modal === "order" && <div className="modal-backdrop"><form className="modal" onSubmit={saveOrder}><div className="modal-heading"><p className="eyebrow">{activeOrder ? "UBAH PESANAN" : "PESANAN BARU"}</p><h2>{activeOrder ? "Ubah pesananmu" : `Tambah pesanan di ${activeTenant?.name}`}</h2></div><div className="profile-summary"><span>Memesan sebagai</span><strong>{profileName}</strong></div>{activeTenant?.menuImageUrl && <button type="button" className="view-menu-link" onClick={() => setMenuPreview({ url: activeTenant.menuImageUrl, name: activeTenant.name })}>Lihat menu {activeTenant.name}</button>}<label>Menu<input autoFocus required name="menu" value={form.menu} onChange={updateField} placeholder="contoh: Brown Sugar Boba Milk" /></label><div className="form-grid"><label>Jumlah<input required min="1" inputMode="numeric" type="number" name="quantity" value={form.quantity} onChange={updateField} /></label><label>Harga satuan (Rp) <small>opsional</small><input min="0" inputMode="numeric" type="number" name="price" value={form.price} onChange={updateField} placeholder="25000" /></label></div><p className="form-total">Total pesanan ini <strong>{formatCurrency(orderTotal(form))}</strong></p><label>Catatan <small>(opsional)</small><textarea name="notes" value={form.notes || ""} onChange={updateField} placeholder="contoh: kurang es, 50% gula" rows="3" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button><button type="submit" className="primary-button">{activeOrder ? "Simpan perubahan" : "Tambahkan pesanan"}</button></div></form></div>}
-    {modal === "delete" && <div className="modal-backdrop"><section className="modal confirm-modal"><div className="warning-icon">!</div><p className="eyebrow">HAPUS PESANAN</p><h2>Hapus pesanan ini?</h2><p>Pesanan akan dihapus dari daftar dan tidak dapat dikembalikan.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setModal(null)}>Batal</button><button className="danger-button" onClick={deleteOrder}>Hapus</button></div></section></div>}
-    {modal === "deleteTenant" && <div className="modal-backdrop"><section className="modal confirm-modal"><div className="warning-icon">!</div><p className="eyebrow">HAPUS ROOM</p><h2>Hapus {activeTenant?.name}?</h2><p>Room, pesanan aktif, dan riwayatnya akan dihapus permanen.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setModal(null)}>Batal</button><button className="danger-button" onClick={deleteTenant}>Hapus room</button></div></section></div>}
-    {modal === "archive" && <div className="modal-backdrop"><section className="modal confirm-modal"><div className="warning-icon">✓</div><p className="eyebrow">TUTUP PESANAN</p><h2>Tutup pesanan {activeTenant?.name}?</h2><div className="archive-confirm-summary"><span>{activeTenant?.orders.reduce((total, order) => total + Number(order.quantity), 0)} item</span><strong>{formatCurrency(activeTenant?.orders.reduce((total, order) => total + orderTotal(order), 0))}</strong></div><p>Pesanan akan disimpan ke Riwayat. Peserta tidak dapat menambah atau mengubah pesanan setelah ini.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setModal(null)}>Batal</button><button className="primary-button" onClick={archiveOrders}>Tutup & arsipkan</button></div></section></div>}
-    {menuPreview && <div className="modal-backdrop menu-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Pratinjau menu ${menuPreview.name}`} onClick={() => setMenuPreview(null)}><button type="button" className="menu-preview-close" onClick={() => setMenuPreview(null)} aria-label="Tutup pratinjau menu">×</button><img className="menu-preview-full" src={menuPreview.url} alt={`Menu ${menuPreview.name}`} onClick={(event) => event.stopPropagation()} /></div>}
+    {modal === "tenant" && <div className="modal-backdrop"><form ref={dialogRef} className="modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="tenant-dialog-title" onSubmit={saveTenant}><div className="modal-heading"><p className="eyebrow">{editingTenant ? "UBAH ROOM" : "ROOM BARU"}</p><h2 id="tenant-dialog-title">{editingTenant ? "Ubah room pesanan" : "Buat room pesanan"}</h2></div><label>Nama merchant / tempat makan<input autoFocus required value={tenantName} onChange={(event) => setTenantName(event.target.value)} placeholder="contoh: Chatime" /></label><label>Catatan untuk peserta <small>(opsional)</small><textarea value={tenantDescription} onChange={(event) => setTenantDescription(event.target.value)} placeholder="contoh: Pesan sebelum pukul 12.00" rows="3" /></label><label>Batas waktu pesanan <small>(opsional)</small><input type="datetime-local" value={tenantDeadline} onChange={(event) => setTenantDeadline(event.target.value)} /></label><label>Instruksi pengambilan <small>(opsional)</small><textarea value={tenantPickupNotes} onChange={(event) => setTenantPickupNotes(event.target.value)} placeholder="contoh: Ambil di lobi pukul 12.30" rows="2" /></label><label>Cara pembayaran <small>(opsional)</small><textarea value={tenantPaymentNotes} onChange={(event) => setTenantPaymentNotes(event.target.value)} placeholder="contoh: Transfer ke BCA 123456789" rows="2" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button><button type="submit" className="tenant-submit-button">{editingTenant ? "Simpan" : "Buat room"}</button></div></form></div>}
+    {modal === "order" && <div className="modal-backdrop"><form ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="order-dialog-title" onSubmit={saveOrder}><div className="modal-heading"><p className="eyebrow">{activeOrder ? "UBAH PESANAN" : "PESANAN BARU"}</p><h2 id="order-dialog-title">{activeOrder ? "Ubah pesananmu" : `Tambah pesanan di ${activeTenant?.name}`}</h2></div><div className="profile-summary"><span>Memesan sebagai</span><strong>{profileName}</strong></div>{activeTenant?.menuImageUrl && <button type="button" className="view-menu-link" onClick={() => setMenuPreview({ url: activeTenant.menuImageUrl, name: activeTenant.name })}>Lihat menu {activeTenant.name}</button>}<label>Menu<input autoFocus required name="menu" value={form.menu} onChange={updateField} placeholder="contoh: Brown Sugar Boba Milk" /></label><div className="form-grid"><label>Jumlah<input required min="1" inputMode="numeric" type="number" name="quantity" value={form.quantity} onChange={updateField} /></label><label>Harga satuan (Rp) <small>opsional</small><input min="0" inputMode="numeric" type="number" name="price" value={form.price} onChange={updateField} placeholder="25000" /></label></div><p className="form-total">Total pesanan ini <strong>{formatCurrency(orderTotal(form))}</strong></p><label>Catatan <small>(opsional)</small><textarea name="notes" value={form.notes || ""} onChange={updateField} placeholder="contoh: kurang es, 50% gula" rows="3" /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal(null)}>Batal</button><button type="submit" className="primary-button">{activeOrder ? "Simpan perubahan" : "Tambahkan pesanan"}</button></div></form></div>}
+    {modal === "delete" && <div className="modal-backdrop"><section ref={dialogRef} className="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-order-title"><div className="warning-icon">!</div><p className="eyebrow">HAPUS PESANAN</p><h2 id="delete-order-title">Hapus pesanan ini?</h2><p>Pesanan akan dihapus dari daftar dan tidak dapat dikembalikan.</p><div className="modal-actions"><button autoFocus className="secondary-button" onClick={() => setModal(null)}>Batal</button><button className="danger-button" onClick={deleteOrder}>Hapus</button></div></section></div>}
+    {modal === "deleteTenant" && <div className="modal-backdrop"><section ref={dialogRef} className="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-room-title"><div className="warning-icon">!</div><p className="eyebrow">HAPUS ROOM</p><h2 id="delete-room-title">Hapus {activeTenant?.name}?</h2><p>Room, pesanan aktif, dan riwayatnya akan dihapus permanen.</p><div className="modal-actions"><button autoFocus className="secondary-button" onClick={() => setModal(null)}>Batal</button><button className="danger-button" onClick={deleteTenant}>Hapus room</button></div></section></div>}
+    {modal === "archive" && <div className="modal-backdrop"><section ref={dialogRef} className="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="archive-dialog-title"><div className="warning-icon">✓</div><p className="eyebrow">TUTUP PESANAN</p><h2 id="archive-dialog-title">Tutup pesanan {activeTenant?.name}?</h2><div className="archive-confirm-summary"><span>{activeTenant?.orders.reduce((total, order) => total + Number(order.quantity), 0)} item</span><strong>{formatCurrency(activeTenant?.orders.reduce((total, order) => total + orderTotal(order), 0))}</strong></div><p>Pesanan akan disimpan ke Riwayat. Peserta tidak dapat menambah atau mengubah pesanan setelah ini.</p><div className="modal-actions"><button autoFocus className="secondary-button" onClick={() => setModal(null)}>Batal</button><button className="primary-button" onClick={archiveOrders}>Tutup & arsipkan</button></div></section></div>}
+    {menuPreview && <div ref={dialogRef} className="modal-backdrop menu-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Pratinjau menu ${menuPreview.name}`} onClick={() => setMenuPreview(null)}><button type="button" className="menu-preview-close" onClick={() => setMenuPreview(null)} aria-label="Tutup pratinjau menu">×</button><img className="menu-preview-full" src={menuPreview.url} alt={`Menu ${menuPreview.name}`} onClick={(event) => event.stopPropagation()} /></div>}
   </>;
 }

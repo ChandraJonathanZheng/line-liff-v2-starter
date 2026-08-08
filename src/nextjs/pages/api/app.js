@@ -37,7 +37,7 @@ async function canModifyOrder(supabase, tenantId, orderId, lineUserId) {
 async function tenantState(supabase, lineUserId) {
   const { data, error } = await supabase
     .from("tenant_members")
-    .select("role, tenant:tenants(id, name, description, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
+    .select("role, tenant:tenants(id, name, description, ordering_deadline, pickup_notes, payment_notes, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
     .eq("line_user_id", lineUserId)
     .order("created_at", { referencedTable: "tenants", ascending: true });
   if (error) throw error;
@@ -61,8 +61,10 @@ export default async function handler(request, response) {
     if (action === "tenant.create") {
       const name = request.body.name?.trim();
       const description = request.body.description?.trim() || null;
+      const orderingDeadline = request.body.orderingDeadline ? new Date(request.body.orderingDeadline) : null;
       if (!name) return json(response, 400, { error: "Tenant name is required." });
-      const { data: tenant, error } = await supabase.from("tenants").insert({ name, description, owner_line_user_id: identity.sub }).select().single();
+      if (orderingDeadline && Number.isNaN(orderingDeadline.valueOf())) return json(response, 400, { error: "Ordering deadline is invalid." });
+      const { data: tenant, error } = await supabase.from("tenants").insert({ name, description, ordering_deadline: orderingDeadline?.toISOString() || null, pickup_notes: request.body.pickupNotes?.trim() || null, payment_notes: request.body.paymentNotes?.trim() || null, owner_line_user_id: identity.sub }).select().single();
       if (error) throw error;
       const { error: memberError } = await supabase.from("tenant_members").insert({ tenant_id: tenant.id, line_user_id: identity.sub, role: "owner" });
       if (memberError) throw memberError;
@@ -72,9 +74,11 @@ export default async function handler(request, response) {
     if (action === "tenant.rename") {
       const name = request.body.name?.trim();
       const description = request.body.description?.trim() || null;
+      const orderingDeadline = request.body.orderingDeadline ? new Date(request.body.orderingDeadline) : null;
       if (!name) return json(response, 400, { error: "Tenant name is required." });
+      if (orderingDeadline && Number.isNaN(orderingDeadline.valueOf())) return json(response, 400, { error: "Ordering deadline is invalid." });
       if (await memberRole(supabase, request.body.tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can rename this tenant." });
-      const { error } = await supabase.from("tenants").update({ name, description, updated_at: new Date().toISOString() }).eq("id", request.body.tenantId);
+      const { error } = await supabase.from("tenants").update({ name, description, ordering_deadline: orderingDeadline?.toISOString() || null, pickup_notes: request.body.pickupNotes?.trim() || null, payment_notes: request.body.paymentNotes?.trim() || null, updated_at: new Date().toISOString() }).eq("id", request.body.tenantId);
       if (error) throw error;
       return json(response, 200, { ok: true });
     }
@@ -113,6 +117,10 @@ export default async function handler(request, response) {
     if (action === "order.save") {
       const { tenantId, order } = request.body;
       await memberRole(supabase, tenantId, identity.sub);
+      const { data: tenant, error: tenantError } = await supabase.from("tenants").select("ordering_deadline").eq("id", tenantId).maybeSingle();
+      if (tenantError) throw tenantError;
+      if (!tenant) return json(response, 404, { error: "Tenant not found." });
+      if (tenant.ordering_deadline && new Date(tenant.ordering_deadline) <= new Date()) return json(response, 400, { error: "The ordering deadline has passed." });
       if (order.id && !(await canModifyOrder(supabase, tenantId, order.id, identity.sub))) return json(response, 403, { error: "You can edit only your own order." });
       const payload = { tenant_id: tenantId, menu: order.menu?.trim(), quantity: Math.max(1, Number(order.quantity) || 1), price: Math.max(0, Number(order.price) || 0), notes: order.notes?.trim() || null, ordered_by_line_user_id: identity.sub, ordered_by_name: identity.name || "LINE User" };
       if (!payload.menu) return json(response, 400, { error: "Menu is required." });
