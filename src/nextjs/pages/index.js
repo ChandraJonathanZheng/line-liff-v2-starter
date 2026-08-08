@@ -205,7 +205,17 @@ export default function Home({ liff, liffError }) {
   const visibleTenants = tenants.filter((tenant) => activeTab === "archive" ? tenant.is_archived : !tenant.is_archived);
 
   return <>
-    <Head><title>一起點餐 · Pesan Bersama</title><meta name="viewport" content="width=device-width, initial-scale=1" /><meta httpEquiv="content-language" content="id" /></Head>
+    <Head>
+      <!-- Google tag (gtag.js) -->
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-NLW42HR5NQ"></script>
+      <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+
+        gtag('config', 'G-NLW42HR5NQ');
+      </script>
+      <title>一起點餐 · Pesan Bersama</title><meta name="viewport" content="width=device-width, initial-scale=1" /><meta httpEquiv="content-language" content="id" /></Head>
     <nav className="top-tabs" aria-label="Navigasi pesanan">
       <button className={activeTab === "order" ? "top-tab active" : "top-tab"} aria-current={activeTab === "order" ? "page" : undefined} onClick={() => setActiveTab("order")}>Aktif ({tenants.filter((tenant) => !tenant.is_archived).length})</button>
       <button className={activeTab === "archive" ? "top-tab active" : "top-tab"} aria-current={activeTab === "archive" ? "page" : undefined} onClick={() => setActiveTab("archive")}>Riwayat ({tenants.filter((tenant) => tenant.is_archived).length})</button>
