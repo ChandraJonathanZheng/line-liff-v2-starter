@@ -124,7 +124,9 @@ export default function Home({ liff, liffError }) {
     setIsWorking(true);
     try {
       const { token } = await api("POST", { action: "invite.create", tenantId: tenant.id });
-      const url = `${window.location.origin}${window.location.pathname}?invite=${token}`;
+      const liffId = process.env.LIFF_ID;
+      if (!liffId) throw new Error("LIFF is not configured. Please contact the app owner.");
+      const url = `https://liff.line.me/${liffId}?invite=${encodeURIComponent(token)}`;
       if (!liff?.isApiAvailable("shareTargetPicker")) throw new Error("Friend sharing is available only in a supported LINE app.");
       await liff.shareTargetPicker([{ type: "text", text: `Join my ${tenant.name} order group: ${url}` }], { isMultiple: true });
     } catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
