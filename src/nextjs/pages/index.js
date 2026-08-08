@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element -- Supabase signed URLs are dynamic and short-lived. */
 import Head from "next/head";
+import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const emptyOrder = { menu: "", quantity: 1, price: "", notes: "" };
@@ -206,15 +207,14 @@ export default function Home({ liff, liffError }) {
 
   return <>
     <Head>
-      <script async src="https://www.googletagmanager.com/gtag/js?id=G-NLW42HR5NQ"></script>
-      <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-
-        gtag('config', 'G-NLW42HR5NQ');
-      </script>
       <title>一起點餐 · Pesan Bersama</title><meta name="viewport" content="width=device-width, initial-scale=1" /><meta httpEquiv="content-language" content="id" /></Head>
+    <Script src="https://www.googletagmanager.com/gtag/js?id=G-NLW42HR5NQ" strategy="afterInteractive" />
+    <Script id="google-analytics" strategy="afterInteractive">{`
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-NLW42HR5NQ');
+    `}</Script>
     <nav className="top-tabs" aria-label="Navigasi pesanan">
       <button className={activeTab === "order" ? "top-tab active" : "top-tab"} aria-current={activeTab === "order" ? "page" : undefined} onClick={() => setActiveTab("order")}>Aktif ({tenants.filter((tenant) => !tenant.is_archived).length})</button>
       <button className={activeTab === "archive" ? "top-tab active" : "top-tab"} aria-current={activeTab === "archive" ? "page" : undefined} onClick={() => setActiveTab("archive")}>Riwayat ({tenants.filter((tenant) => tenant.is_archived).length})</button>
