@@ -54,7 +54,7 @@ async function tenantState(supabase, lineUserId) {
 export default async function handler(request, response) {
   try {
     const { identity, supabase } = await authenticate(request);
-    if (request.method === "GET") return json(response, 200, { tenants: await tenantState(supabase, identity.sub) });
+    if (request.method === "GET") return json(response, 200, { tenants: await tenantState(supabase, identity.sub), viewerId: identity.sub });
     if (request.method !== "POST") return json(response, 405, { error: "Method not allowed" });
 
     const { action } = request.body || {};
