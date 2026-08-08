@@ -10,6 +10,7 @@ create table public.tenants (
   id uuid primary key default gen_random_uuid(),
   name text not null check (char_length(trim(name)) > 0),
   description text,
+  currency_code text not null default 'TWD' check (currency_code in ('TWD', 'USD', 'IDR', 'SGD', 'JPY')),
   ordering_deadline timestamptz,
   pickup_notes text,
   payment_notes text,
@@ -26,6 +27,7 @@ create table public.tenant_archives (
   orders jsonb not null,
   total_items integer not null default 0,
   total_amount numeric(12, 2) not null default 0,
+  currency_code text not null default 'TWD' check (currency_code in ('TWD', 'USD', 'IDR', 'SGD', 'JPY')),
   archived_by_line_user_id text not null references public.line_users(line_user_id) on delete restrict,
   archived_at timestamptz not null default now()
 );

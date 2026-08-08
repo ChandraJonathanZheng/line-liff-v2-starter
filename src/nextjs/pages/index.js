@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const emptyOrder = { menu: "", quantity: 1, price: "", notes: "" };
 const formatAmount = (amount) => Number(amount || 0).toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const formatCurrency = (amount) => `Rp${formatAmount(amount)}`;
+const currencies = ["TWD", "USD", "IDR", "SGD", "JPY"];
+const formatCurrency = (amount, currency = "TWD") => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: currency === "JPY" ? 0 : 2 }).format(Number(amount || 0));
 const orderTotal = (order) => Number(order.quantity || 0) * Number(order.price || 0);
 const localDateTimeValue = (value) => {
   if (!value) return "";
@@ -43,6 +44,7 @@ export default function Home({ liff, liffError }) {
   const [form, setForm] = useState(emptyOrder);
   const [tenantName, setTenantName] = useState("");
   const [tenantDescription, setTenantDescription] = useState("");
+  const [tenantCurrency, setTenantCurrency] = useState("TWD");
   const [tenantDeadline, setTenantDeadline] = useState("");
   const [tenantPickupNotes, setTenantPickupNotes] = useState("");
   const [tenantPaymentNotes, setTenantPaymentNotes] = useState("");
@@ -113,7 +115,7 @@ export default function Home({ liff, liffError }) {
 
   const updateField = (event) => { const { name, value } = event.target; setForm((current) => ({ ...current, [name]: value })); };
   const openOrder = (tenant, order = null) => { setActiveTenant(tenant); setActiveOrder(order); setForm(order ? { ...order } : emptyOrder); setModal("order"); };
-  const openTenant = (tenant = null) => { setEditingTenant(tenant); setTenantName(tenant?.name || ""); setTenantDescription(tenant?.description || ""); setTenantDeadline(localDateTimeValue(tenant?.ordering_deadline)); setTenantPickupNotes(tenant?.pickup_notes || ""); setTenantPaymentNotes(tenant?.payment_notes || ""); setModal("tenant"); };
+  const openTenant = (tenant = null) => { setEditingTenant(tenant); setTenantName(tenant?.name || ""); setTenantDescription(tenant?.description || ""); setTenantCurrency(tenant?.currency_code || "TWD"); setTenantDeadline(localDateTimeValue(tenant?.ordering_deadline)); setTenantPickupNotes(tenant?.pickup_notes || ""); setTenantPaymentNotes(tenant?.payment_notes || ""); setModal("tenant"); };
 
   useEffect(() => {
     if (!modal && !menuPreview) return undefined;
@@ -138,7 +140,7 @@ export default function Home({ liff, liffError }) {
     event.preventDefault();
     setIsWorking(true);
     try {
-      const details = { name: tenantName, description: tenantDescription, orderingDeadline: tenantDeadline || null, pickupNotes: tenantPickupNotes, paymentNotes: tenantPaymentNotes };
+      const details = { name: tenantName, description: tenantDescription, currencyCode: tenantCurrency, orderingDeadline: tenantDeadline || null, pickupNotes: tenantPickupNotes, paymentNotes: tenantPaymentNotes };
       await api("POST", editingTenant ? { action: "tenant.rename", tenantId: editingTenant.id, ...details } : { action: "tenant.create", ...details });
       setModal(null); setNotice(editingTenant ? "Order room updated." : "Order room created."); await loadTenants();
     } catch (requestError) { setError(requestError.message); } finally { setIsWorking(false); }
@@ -194,11 +196,11 @@ export default function Home({ liff, liffError }) {
   const shareCheckoutSummary = async (tenant) => {
     const itemCount = tenant.orders.reduce((total, order) => total + Number(order.quantity), 0);
     const total = tenant.orders.reduce((amount, order) => amount + orderTotal(order), 0);
-    const itemLines = tenant.orders.map((order) => `• ${order.quantity}× ${order.menu} — ${formatCurrency(orderTotal(order))}`).join("\n");
+    const itemLines = tenant.orders.map((order) => `• ${order.quantity}× ${order.menu} — ${formatCurrency(orderTotal(order), tenant.currency_code)}`).join("\n");
     const details = [tenant.pickup_notes && `Pickup: ${tenant.pickup_notes}`, tenant.payment_notes && `Payment: ${tenant.payment_notes}`].filter(Boolean).join("\n");
     try {
       if (!liff?.isApiAvailable("shareTargetPicker")) throw new Error("Sharing is available only in a supported LINE app.");
-      await liff.shareTargetPicker([{ type: "text", text: `Order summary: ${tenant.name}\n${itemCount} items · ${formatCurrency(total)}\n\n${itemLines}${details ? `\n\n${details}` : ""}` }], { isMultiple: true });
+      await liff.shareTargetPicker([{ type: "text", text: `Order summary: ${tenant.name}\n${itemCount} items · ${formatCurrency(total, tenant.currency_code)}\n\n${itemLines}${details ? `\n\n${details}` : ""}` }], { isMultiple: true });
       setNotice("Order summary is ready to share in LINE.");
     } catch (requestError) { setError(requestError.message); }
   };
@@ -230,9 +232,9 @@ export default function Home({ liff, liffError }) {
       {visibleTenants.map((tenant, index) => {
         if (tenant.is_archived) {
           const latestArchive = tenant.archives?.[0];
-          return <details className="order-card archive-tenant-card" key={tenant.id} open={openArchiveTenantId === tenant.id} onToggle={(event) => setOpenArchiveTenantId(event.currentTarget.open ? tenant.id : null)}>
-            <summary className="order-header archive-tenant-summary"><div><p className="eyebrow">CLOSED</p><div className="tenant-title"><h1>{tenant.name}</h1></div><p className="subtitle">{tenant.description || "View the completed order summary."}</p>{latestArchive && <p className="archive-summary">{latestArchive.total_items} items · {formatCurrency(latestArchive.total_amount)}</p>}</div><span className="archive-toggle-label">Show</span></summary>
-            <section className="archive-section"><p className="eyebrow">ORDER HISTORY</p>{tenant.archives?.map((archive) => <article className="archive-record" key={archive.id}><div className="archive-record-heading"><span>{new Date(archive.archived_at).toLocaleDateString("en-US", { dateStyle: "medium" })}</span><span>{archive.total_items} items · {formatCurrency(archive.total_amount)}</span></div><ul>{archive.orders.map((order) => <li key={order.id}>{order.quantity}× {order.menu} <span>{order.ordered_by_name}</span></li>)}</ul></article>)}</section>
+          return <details className="order-card archive-tenant-card" key={tenant.id} open={openArchiveTenantId === tenant.id}>
+            <summary className="order-header archive-tenant-summary" onClick={(event) => { event.preventDefault(); setOpenArchiveTenantId((current) => current === tenant.id ? null : tenant.id); }}><div><p className="eyebrow">CLOSED</p><div className="tenant-title"><h1>{tenant.name}</h1></div><p className="subtitle">{tenant.description || "View the completed order summary."}</p>{latestArchive && <p className="archive-summary">{latestArchive.total_items} items · {formatCurrency(latestArchive.total_amount, latestArchive.currency_code || tenant.currency_code)}</p>}</div><span className="archive-toggle-label">Show</span></summary>
+            <section className="archive-section"><p className="eyebrow">ORDER HISTORY</p>{tenant.archives?.map((archive) => <article className="archive-record" key={archive.id}><div className="archive-record-heading"><span>{new Date(archive.archived_at).toLocaleDateString("en-US", { dateStyle: "medium" })}</span><span>{archive.total_items} items · {formatCurrency(archive.total_amount, archive.currency_code || tenant.currency_code)}</span></div><ul>{archive.orders.map((order) => <li key={order.id}>{order.quantity}× {order.menu} <span>{order.ordered_by_name}</span></li>)}</ul></article>)}</section>
           </details>;
         }
 
@@ -243,14 +245,14 @@ export default function Home({ liff, liffError }) {
         const orderingClosed = status.className === "closed";
         return <section className="order-card" key={tenant.id}>
           <header className="order-header"><div><p className={`eyebrow room-status ${status.className}`}>ORDER ROOM {index + 1} · {status.label}</p><div className="tenant-title"><h1>{tenant.name}</h1>{tenant.role === "owner" && <button className="edit-tenant" aria-label={`Edit ${tenant.name} order room`} onClick={() => openTenant(tenant)}>Edit</button>}</div><p className="subtitle">{tenant.description || (orderingClosed ? "The ordering deadline has passed." : "Add your order before this room closes.")}</p></div><div className="order-count"><strong>{itemCount}</strong><span>items</span></div></header>
-          <section className="order-summary" aria-label={`${tenant.name} summary`}><div><span>Group total</span><strong>{formatCurrency(groupTotal)}</strong></div><div><span>My order</span><strong>{formatCurrency(myTotal)}</strong></div><div><span>People</span><strong>{new Set(tenant.orders.map((order) => order.ordered_by_line_user_id)).size}</strong></div></section>
+          <section className="order-summary" aria-label={`${tenant.name} summary`}><div><span>Group total</span><strong>{formatCurrency(groupTotal, tenant.currency_code)}</strong></div><div><span>My order</span><strong>{formatCurrency(myTotal, tenant.currency_code)}</strong></div><div><span>People</span><strong>{new Set(tenant.orders.map((order) => order.ordered_by_line_user_id)).size}</strong></div></section>
           <section className="coordination-details" aria-label={`${tenant.name} coordination details`}><div><span>Order deadline</span><strong>{formatDeadline(tenant.ordering_deadline)}</strong></div>{tenant.pickup_notes && <div><span>Pickup</span><strong>{tenant.pickup_notes}</strong></div>}{tenant.payment_notes && <div><span>Payment</span><strong>{tenant.payment_notes}</strong></div>}</section>
           {tenant.role === "owner" && <div className="tenant-tools"><button className="invite-button" onClick={() => inviteFriends(tenant)}>Invite friends</button><label className="menu-upload"><input type="file" accept="image/*" onChange={(event) => uploadMenu(event, tenant)} />{tenant.menuImageUrl ? "Replace menu" : "Upload menu"}</label><button className="finish-button" disabled={!tenant.orders.length} onClick={() => { setActiveTenant(tenant); setModal("archive"); }}>Close order</button></div>}
           <section className="menu-section"><div><p className="eyebrow">MERCHANT MENU</p><p>{tenant.menuImageUrl ? "Tap the image to view the full menu." : tenant.role === "owner" ? "Upload one menu image so friends can see the options." : "The room owner has not uploaded a menu yet."}</p></div>{tenant.menuImageUrl && <button type="button" className="menu-preview" onClick={() => setMenuPreview({ url: tenant.menuImageUrl, name: tenant.name })} aria-label={`View ${tenant.name} menu`}><img src={tenant.menuImageUrl} alt={`${tenant.name} menu`} /></button>}</section>
           <div className="table-wrap"><table><thead><tr><th>No.</th><th>Menu</th><th>Quantity</th><th>Ordered by</th><th>Notes</th><th>Total</th><th aria-label="Actions" /></tr></thead><tbody>{tenant.orders.length ? tenant.orders.map((order, orderIndex) => {
             const isMine = order.ordered_by_line_user_id === viewerId;
             const canModify = tenant.role === "owner" || isMine;
-            return <tr key={order.id} className={isMine ? "my-order" : ""}><td data-label="No.">{String(orderIndex + 1).padStart(2, "0")}</td><td data-label="Menu" className="menu-name">{order.menu}{isMine && <span className="my-order-label">My order</span>}</td><td data-label="Quantity"><span className="quantity">{order.quantity}</span></td><td data-label="Ordered by">{order.ordered_by_name}</td><td data-label="Notes" className="notes">{order.notes || "—"}</td><td data-label="Total" className="line-total">{formatCurrency(orderTotal(order))}</td><td className="actions">{canModify && <><button aria-label={`Edit ${order.menu} order`} onClick={() => openOrder(tenant, order)}>Edit</button><button className="delete-link" aria-label={`Delete ${order.menu} order`} onClick={() => { setActiveTenant(tenant); setActiveOrder(order); setModal("delete"); }}>Delete</button></>}</td></tr>;
+            return <tr key={order.id} className={isMine ? "my-order" : ""}><td data-label="No.">{String(orderIndex + 1).padStart(2, "0")}</td><td data-label="Menu" className="menu-name">{order.menu}{isMine && <span className="my-order-label">My order</span>}</td><td data-label="Quantity"><span className="quantity">{order.quantity}</span></td><td data-label="Ordered by">{order.ordered_by_name}</td><td data-label="Notes" className="notes">{order.notes || "—"}</td><td data-label="Total" className="line-total">{formatCurrency(orderTotal(order), tenant.currency_code)}</td><td className="actions">{canModify && <><button aria-label={`Edit ${order.menu} order`} onClick={() => openOrder(tenant, order)}>Edit</button><button className="delete-link" aria-label={`Delete ${order.menu} order`} onClick={() => { setActiveTenant(tenant); setActiveOrder(order); setModal("delete"); }}>Delete</button></>}</td></tr>;
           }) : <tr><td className="empty-orders" colSpan="7">No orders yet. Be the first to add one.</td></tr>}</tbody></table></div>
           <button className="add-button" onClick={() => openOrder(tenant)} disabled={loginState !== "ready" || orderingClosed}><span>＋</span>{orderingClosed ? "The ordering deadline has passed" : "Add order"}</button>{tenant.role === "owner" && <button className="delete-tenant-button" onClick={() => { setActiveTenant(tenant); setModal("deleteTenant"); }}>Delete order room</button>}
         </section>;

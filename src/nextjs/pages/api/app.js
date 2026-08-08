@@ -37,7 +37,7 @@ async function canModifyOrder(supabase, tenantId, orderId, lineUserId) {
 async function tenantState(supabase, lineUserId) {
   const { data, error } = await supabase
     .from("tenant_members")
-    .select("role, tenant:tenants(id, name, description, ordering_deadline, pickup_notes, payment_notes, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
+    .select("role, tenant:tenants(id, name, description, currency_code, ordering_deadline, pickup_notes, payment_notes, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, currency_code, archived_at))")
     .eq("line_user_id", lineUserId)
     .order("created_at", { referencedTable: "tenants", ascending: true });
   if (error) throw error;
@@ -62,9 +62,11 @@ export default async function handler(request, response) {
       const name = request.body.name?.trim();
       const description = request.body.description?.trim() || null;
       const orderingDeadline = request.body.orderingDeadline ? new Date(request.body.orderingDeadline) : null;
+      const currencyCode = request.body.currencyCode || "TWD";
       if (!name) return json(response, 400, { error: "Tenant name is required." });
+      if (!["TWD", "USD", "IDR", "SGD", "JPY"].includes(currencyCode)) return json(response, 400, { error: "Currency is invalid." });
       if (orderingDeadline && Number.isNaN(orderingDeadline.valueOf())) return json(response, 400, { error: "Ordering deadline is invalid." });
-      const { data: tenant, error } = await supabase.from("tenants").insert({ name, description, ordering_deadline: orderingDeadline?.toISOString() || null, pickup_notes: request.body.pickupNotes?.trim() || null, payment_notes: request.body.paymentNotes?.trim() || null, owner_line_user_id: identity.sub }).select().single();
+      const { data: tenant, error } = await supabase.from("tenants").insert({ name, description, currency_code: currencyCode, ordering_deadline: orderingDeadline?.toISOString() || null, pickup_notes: request.body.pickupNotes?.trim() || null, payment_notes: request.body.paymentNotes?.trim() || null, owner_line_user_id: identity.sub }).select().single();
       if (error) throw error;
       const { error: memberError } = await supabase.from("tenant_members").insert({ tenant_id: tenant.id, line_user_id: identity.sub, role: "owner" });
       if (memberError) throw memberError;
@@ -75,10 +77,12 @@ export default async function handler(request, response) {
       const name = request.body.name?.trim();
       const description = request.body.description?.trim() || null;
       const orderingDeadline = request.body.orderingDeadline ? new Date(request.body.orderingDeadline) : null;
+      const currencyCode = request.body.currencyCode || "TWD";
       if (!name) return json(response, 400, { error: "Tenant name is required." });
+      if (!["TWD", "USD", "IDR", "SGD", "JPY"].includes(currencyCode)) return json(response, 400, { error: "Currency is invalid." });
       if (orderingDeadline && Number.isNaN(orderingDeadline.valueOf())) return json(response, 400, { error: "Ordering deadline is invalid." });
       if (await memberRole(supabase, request.body.tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can rename this tenant." });
-      const { error } = await supabase.from("tenants").update({ name, description, ordering_deadline: orderingDeadline?.toISOString() || null, pickup_notes: request.body.pickupNotes?.trim() || null, payment_notes: request.body.paymentNotes?.trim() || null, updated_at: new Date().toISOString() }).eq("id", request.body.tenantId);
+      const { error } = await supabase.from("tenants").update({ name, description, currency_code: currencyCode, ordering_deadline: orderingDeadline?.toISOString() || null, pickup_notes: request.body.pickupNotes?.trim() || null, payment_notes: request.body.paymentNotes?.trim() || null, updated_at: new Date().toISOString() }).eq("id", request.body.tenantId);
       if (error) throw error;
       return json(response, 200, { ok: true });
     }
@@ -140,12 +144,15 @@ export default async function handler(request, response) {
     if (action === "order.archive") {
       const { tenantId } = request.body;
       if (await memberRole(supabase, tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can finish this order." });
+      const { data: tenant, error: tenantError } = await supabase.from("tenants").select("currency_code").eq("id", tenantId).maybeSingle();
+      if (tenantError) throw tenantError;
+      if (!tenant) return json(response, 404, { error: "Tenant not found." });
       const { data: orders, error: orderError } = await supabase.from("tenant_orders").select("id, menu, quantity, price, notes, ordered_by_name, created_at").eq("tenant_id", tenantId).order("created_at");
       if (orderError) throw orderError;
       if (!orders?.length) return json(response, 400, { error: "There are no active orders to archive." });
       const totalItems = orders.reduce((total, order) => total + Number(order.quantity), 0);
       const totalAmount = orders.reduce((total, order) => total + Number(order.quantity) * Number(order.price), 0);
-      const { error: archiveError } = await supabase.from("tenant_archives").insert({ tenant_id: tenantId, orders, total_items: totalItems, total_amount: totalAmount, archived_by_line_user_id: identity.sub });
+      const { error: archiveError } = await supabase.from("tenant_archives").insert({ tenant_id: tenantId, orders, total_items: totalItems, total_amount: totalAmount, currency_code: tenant.currency_code || "TWD", archived_by_line_user_id: identity.sub });
       if (archiveError) throw archiveError;
       const { error: deleteError } = await supabase.from("tenant_orders").delete().eq("tenant_id", tenantId);
       if (deleteError) throw deleteError;
