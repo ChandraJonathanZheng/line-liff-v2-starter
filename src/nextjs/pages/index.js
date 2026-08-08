@@ -206,7 +206,6 @@ export default function Home({ liff, liffError }) {
 
   return <>
     <Head>
-      <!-- Google tag (gtag.js) -->
       <script async src="https://www.googletagmanager.com/gtag/js?id=G-NLW42HR5NQ"></script>
       <script>
         window.dataLayer = window.dataLayer || [];
