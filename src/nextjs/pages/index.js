@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 const initialOrders = [
   {
     id: 1,
-    name: "Chandra, Ray",
+    name: "Chandra",
     menu: "珍珠奶茶",
-    quantity: 2,
+    quantity: 1,
     price: 65,
     notes: "微糖微冰",
   },
@@ -85,7 +85,7 @@ export default function Home({ liff, liffError }) {
   return (
     <>
       <Head>
-        <title>一起点餐 · Order Together</title>
+        <title>一起點餐 · Order Together</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <main className="order-page">
@@ -93,8 +93,8 @@ export default function Home({ liff, liffError }) {
           <header className="order-header">
             <div>
               <p className="eyebrow">GROUP ORDER</p>
-              <h1>NAMA RESTO / TOKO / BEVERAGE</h1>
-              <p className="subtitle">一起接龙点餐，轻松汇总每一份心意。</p>
+              <h1>得正</h1>
+              <p className="subtitle">一起接龍點餐，輕鬆總結每一份i心意.</p>
             </div>
             <div className="order-count"><strong>{totalItems}</strong><span>items</span></div>
           </header>
