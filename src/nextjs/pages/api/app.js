@@ -34,7 +34,7 @@ async function canModifyOrder(supabase, tenantId, orderId, lineUserId) {
 async function tenantState(supabase, lineUserId) {
   const { data, error } = await supabase
     .from("tenant_members")
-    .select("role, tenant:tenants(id, name, owner_line_user_id, menu_image_path, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
+    .select("role, tenant:tenants(id, name, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
     .eq("line_user_id", lineUserId)
     .order("created_at", { referencedTable: "tenants", ascending: true });
   if (error) throw error;
@@ -120,6 +120,8 @@ export default async function handler(request, response) {
       if (archiveError) throw archiveError;
       const { error: deleteError } = await supabase.from("tenant_orders").delete().eq("tenant_id", tenantId);
       if (deleteError) throw deleteError;
+      const { error: tenantError } = await supabase.from("tenants").update({ is_archived: true, updated_at: new Date().toISOString() }).eq("id", tenantId);
+      if (tenantError) throw tenantError;
       return json(response, 200, { ok: true });
     }
 

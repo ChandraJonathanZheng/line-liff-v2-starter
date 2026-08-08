@@ -1,4 +1,5 @@
 alter table public.tenants add column if not exists menu_image_path text;
+alter table public.tenants add column if not exists is_archived boolean not null default false;
 
 create table if not exists public.tenant_archives (
   id uuid primary key default gen_random_uuid(),
