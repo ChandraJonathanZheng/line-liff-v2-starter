@@ -37,7 +37,7 @@ async function canModifyOrder(supabase, tenantId, orderId, lineUserId) {
 async function tenantState(supabase, lineUserId) {
   const { data, error } = await supabase
     .from("tenant_members")
-    .select("role, tenant:tenants(id, name, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
+    .select("role, tenant:tenants(id, name, description, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, archived_at))")
     .eq("line_user_id", lineUserId)
     .order("created_at", { referencedTable: "tenants", ascending: true });
   if (error) throw error;
@@ -60,8 +60,9 @@ export default async function handler(request, response) {
     const { action } = request.body || {};
     if (action === "tenant.create") {
       const name = request.body.name?.trim();
+      const description = request.body.description?.trim() || null;
       if (!name) return json(response, 400, { error: "Tenant name is required." });
-      const { data: tenant, error } = await supabase.from("tenants").insert({ name, owner_line_user_id: identity.sub }).select().single();
+      const { data: tenant, error } = await supabase.from("tenants").insert({ name, description, owner_line_user_id: identity.sub }).select().single();
       if (error) throw error;
       const { error: memberError } = await supabase.from("tenant_members").insert({ tenant_id: tenant.id, line_user_id: identity.sub, role: "owner" });
       if (memberError) throw memberError;
@@ -70,9 +71,25 @@ export default async function handler(request, response) {
 
     if (action === "tenant.rename") {
       const name = request.body.name?.trim();
+      const description = request.body.description?.trim() || null;
       if (!name) return json(response, 400, { error: "Tenant name is required." });
       if (await memberRole(supabase, request.body.tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can rename this tenant." });
-      const { error } = await supabase.from("tenants").update({ name, updated_at: new Date().toISOString() }).eq("id", request.body.tenantId);
+      const { error } = await supabase.from("tenants").update({ name, description, updated_at: new Date().toISOString() }).eq("id", request.body.tenantId);
+      if (error) throw error;
+      return json(response, 200, { ok: true });
+    }
+
+    if (action === "tenant.delete") {
+      const { tenantId } = request.body;
+      if (await memberRole(supabase, tenantId, identity.sub) !== "owner") return json(response, 403, { error: "Only the owner can delete this tenant." });
+      const { data: tenant, error: tenantLookupError } = await supabase.from("tenants").select("menu_image_path").eq("id", tenantId).maybeSingle();
+      if (tenantLookupError) throw tenantLookupError;
+      if (!tenant) return json(response, 404, { error: "Tenant not found." });
+      if (tenant.menu_image_path) {
+        const { error: imageError } = await supabase.storage.from("tenant-menu-images").remove([tenant.menu_image_path]);
+        if (imageError) throw imageError;
+      }
+      const { error } = await supabase.from("tenants").delete().eq("id", tenantId);
       if (error) throw error;
       return json(response, 200, { ok: true });
     }

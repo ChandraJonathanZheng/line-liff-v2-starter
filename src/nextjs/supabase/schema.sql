@@ -9,6 +9,7 @@ create table public.line_users (
 create table public.tenants (
   id uuid primary key default gen_random_uuid(),
   name text not null check (char_length(trim(name)) > 0),
+  description text,
   owner_line_user_id text not null references public.line_users(line_user_id) on delete restrict,
   menu_image_path text,
   is_archived boolean not null default false,
