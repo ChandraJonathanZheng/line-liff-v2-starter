@@ -2,12 +2,26 @@ import "../styles/globals.css";
 import { useState, useEffect } from "react";
 import liff from "@line/liff";
 
+const devLiffStub = {
+  getIDToken: () => "dev-mode-token",
+  getAccessToken: () => "dev-mode-token",
+  isLoggedIn: () => true,
+  getProfile: () => Promise.resolve({ displayName: "Dev User", userId: "dev-user" }),
+  isApiAvailable: () => false,
+  shareTargetPicker: () => Promise.resolve(),
+};
+
 function MyApp({ Component, pageProps }) {
   const [liffObject, setLiffObject] = useState(null);
   const [liffError, setLiffError] = useState(null);
 
   // Execute liff.init() when the app is initialized
   useEffect(() => {
+    if (process.env.DEV_MODE === "true") {
+      console.log("DEV_MODE: skipping liff.init(), using stub liff object");
+      setLiffObject(devLiffStub);
+      return;
+    }
     console.log("start liff.init()...");
     liff
       .init({ liffId: process.env.LIFF_ID || "I2011020800-EmV3FAty" })

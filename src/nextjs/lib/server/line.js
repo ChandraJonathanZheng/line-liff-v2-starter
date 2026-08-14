@@ -1,5 +1,8 @@
 export async function getLineIdentity(request) {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
+  if (process.env.DEV_MODE === "true" && token === "dev-mode-token") {
+    return { sub: "dev-user", name: "Dev User", picture: null };
+  }
   const clientId = process.env.LINE_CHANNEL_ID || process.env.LIFF_ID?.split("-")[0];
   if (!token || !clientId) throw new Error("Missing LINE authentication.");
 

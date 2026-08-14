@@ -37,7 +37,7 @@ async function canModifyOrder(supabase, tenantId, orderId, lineUserId) {
 async function tenantState(supabase, lineUserId) {
   const { data, error } = await supabase
     .from("tenant_members")
-    .select("role, tenant:tenants(id, name, description, currency_code, ordering_deadline, pickup_notes, payment_notes, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, created_at), tenant_archives(id, orders, total_items, total_amount, currency_code, archived_at))")
+    .select("role, tenant:tenants(id, name, description, currency_code, ordering_deadline, pickup_notes, payment_notes, owner_line_user_id, menu_image_path, is_archived, tenant_orders(id, menu, quantity, price, notes, ordered_by_name, ordered_by_line_user_id, is_paid, created_at), tenant_archives(id, orders, total_items, total_amount, currency_code, archived_at))")
     .eq("line_user_id", lineUserId)
     .order("created_at", { referencedTable: "tenants", ascending: true });
   if (error) throw error;
@@ -130,6 +130,17 @@ export default async function handler(request, response) {
       if (!payload.menu) return json(response, 400, { error: "Menu is required." });
       const query = order.id ? supabase.from("tenant_orders").update(payload).eq("id", order.id).eq("tenant_id", tenantId) : supabase.from("tenant_orders").insert(payload);
       const { error } = await query;
+      if (error) throw error;
+      return json(response, 200, { ok: true });
+    }
+
+    if (action === "order.pay") {
+      const { tenantId, orderId, isPaid } = request.body;
+      const { data: order, error: orderLookupError } = await supabase.from("tenant_orders").select("ordered_by_line_user_id").eq("id", orderId).eq("tenant_id", tenantId).maybeSingle();
+      if (orderLookupError) throw orderLookupError;
+      if (!order) return json(response, 404, { error: "Order not found." });
+      if (order.ordered_by_line_user_id !== identity.sub) return json(response, 403, { error: "You can update the payment status only for your own order." });
+      const { error } = await supabase.from("tenant_orders").update({ is_paid: !!isPaid }).eq("id", orderId).eq("tenant_id", tenantId);
       if (error) throw error;
       return json(response, 200, { ok: true });
     }
